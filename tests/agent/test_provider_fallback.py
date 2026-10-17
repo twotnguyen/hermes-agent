@@ -545,3 +545,51 @@ class TestMoaPresetFallback:
                             fallback_model={"provider": "moa", "model": "default"})
         _assert_bound_to_moa_preset(agent)
         assert agent._fallback_activated is True
+
+
+# ── Same-provider candidate pool wait information (#140568) ───────────────
+
+
+class TestCandidatePoolExhausted:
+    def test_pool_with_no_wait_info_not_exhausted(self):
+        """#140568: next_available_at()=None means 'no wait information', not 'exhausted'.
+        Entries that availability scan never counts (e.g. Vertex SA key file with no
+        runtime API key) must not be skipped as exhausted."""
+        from agent.chat_completion_helpers import _candidate_pool_exhausted
+
+        mock_entry = MagicMock()
+        mock_entry.last_status = None
+
+        mock_pool = MagicMock()
+        mock_pool.provider = "vertex"
+        mock_pool.has_credentials.return_value = True
+        mock_pool.has_available.return_value = False
+        mock_pool.next_available_at.return_value = None
+        mock_pool.entries.return_value = [mock_entry]
+
+        agent = MagicMock()
+        agent._credential_pool = mock_pool
+
+        assert _candidate_pool_exhausted(agent, "vertex", "google/gemini-4-argon") is False
+
+    def test_pool_with_all_dead_entries_exhausted(self):
+        """When next_available_at() is None and all entries are STATUS_DEAD, the pool
+        is truly dead and should be treated as exhausted."""
+        from agent.chat_completion_helpers import _candidate_pool_exhausted
+        from agent.credential_pool import STATUS_DEAD
+
+        dead_entry = MagicMock()
+        dead_entry.last_status = STATUS_DEAD
+
+        mock_pool = MagicMock()
+        mock_pool.provider = "vertex"
+        mock_pool.has_credentials.return_value = True
+        mock_pool.has_available.return_value = False
+        mock_pool.next_available_at.return_value = None
+        mock_pool.entries.return_value = [dead_entry]
+
+        agent = MagicMock()
+        agent._credential_pool = mock_pool
+
+        assert _candidate_pool_exhausted(agent, "vertex", "google/gemini-4-argon") is True
+
